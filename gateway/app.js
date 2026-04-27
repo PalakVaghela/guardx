@@ -1,22 +1,29 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-// Client → MY Gateway → Another Server (Target API). it create one proxy server which move drq first to my gateway then forward it to main api for which it was craeted
+// Client → MY Gateway(my port of guarx) → Another Serverhich is actual port(Target API).
 const routesConfig = require('./config/rules.json');
+const rateLimiter = require('./middleware/rateLimiter')
+const auth = require('./middleware/auth')
 
 const app = express();
 const PORT = 3000;
 
 // Middleware Pipeline starts here
+// app.use will work on all req, not just on specific path.
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} to ${req.url}`);
     next();
 });
 
 // Health Check, it just check that wather server is able to respond or not when get a req.
-app.get('/health', (req, res) => res.send('Gateway is healthy'));
+app.get('/health', (req, res) => res.send('Gateway is health'));
 
-// Dynamic Proxy Logic
+// ratelimiter middlewere
+app.use('/api', auth)
+app.use('/api', rateLimiter)
+// Dynamic Proxy Logic (final endpoint lead to main port)
 routesConfig.routes.forEach(route => {
+    console.log(`Loading route: ${route.path} -> ${route.target}`);
     app.use(route.path, createProxyMiddleware({
         target: route.target,
         changeOrigin: true,
@@ -26,7 +33,7 @@ routesConfig.routes.forEach(route => {
 app.listen(PORT, () => {
     console.log(`🚀 GuardX Gateway routing traffic from :${PORT} to :5000`);
 });
-// req come to port 3000, whevere user search route in browser and then it is forwarede to route 5000 which is our proxy route. then manage everyth
-// here first of all we have app, then it go to middleware, in middleware it goes before it go to PORT 5000, then it just check that port 3000 is awake or not then 
-// it makes dynamic routes, means insted of /api -> proxy5000 it take routes from config and make proxy route on 5000.
-// then it go back to port 3000.
+// here port 5000 is not rate limiter, it is main server that perform operation.
+// Here Port 3000 is guarex req, it check incoming- as middleware, check auth, check limit, quota, services, thereat score,etc
+// then go to main port 5000 , that will give res back to PORT 3000
+// 3000 will res to user, so like that user never direct communicate to main port 5000 for any req. it always req to guaredx not knowing it is real port.
